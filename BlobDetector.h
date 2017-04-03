@@ -1,0 +1,14 @@
+//
+// Created by antonsterner on 2017-03-22.
+//
+
+#ifndef SIMPLEBLOBDETECTION_BLOBDETECTOR_H
+#define SIMPLEBLOBDETECTION_BLOBDETECTOR_H
+
+
+class BlobDetector {
+
+};
+
+
+#endif //SIMPLEBLOBDETECTION_BLOBDETECTOR_H
