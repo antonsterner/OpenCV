@@ -7,22 +7,73 @@
 
 #include <iterator>
 #include <iostream>
-#include <cmath>
 #include "opencv2/opencv.hpp"
 #include "Camera.h"
+#include "../linearalgebra.hh"
 
 
-
-using namespace cv;
+// using namespace cv;
 using namespace std;
-/*
-bool compare(float prevx[], float prevy[], float X, float Y);
 
+
+// Working blobdetection code, not class based
 int main( int argc, char** argv )
 {
+    // read camera matrix and extrinsic parameters from out_camera_data.xml
+    const string calibrationFile = argc > 1 ? argv[1] : "../out_camera_data.xml";
+    FileStorage fs(calibrationFile , FileStorage::READ);
+    if (!fs.isOpened())
+    {
+        cerr << "failed to open " << calibrationFile << endl;
+        return 1;
+    }
+    Mat cameraMatrix, extrinsicParam;
+    fs["camera_matrix"] >> cameraMatrix;
+    fs["extrinsic_parameters"] >> extrinsicParam;
+    fs.release();
+
+    cout << "camera matrix : " << cameraMatrix << endl;
+
+    // camera intrinsic parameter fx ( fx == fy ), calibrated at fullHD 1920x1080
+    double fx = cameraMatrix.at<double>(0,0);
+    double cx = cameraMatrix.at<double>(0,2);
+    double cy = cameraMatrix.at<double>(1,2);
+
+    // separate the rotation and translation of extrinsic parameters
+    vector<double> rotvec, transvec;
+    for( int i = 0; i < 3; i++)
+    {
+        double value = extrinsicParam.at<double>(0,i);
+        rotvec.push_back(value);
+    }
+
+    for(int i = 3; i < 6; i++)
+    {
+        double value = extrinsicParam.at<double>(0,i);
+        transvec.push_back(value);
+    }
+
+    Mat Rot(3,3, CV_32FC1);
+    // Rodrigues transforms rotation vector from extrinsics to 3x3 array, stored in matrix Rot
+    Rodrigues(rotvec, Rot, noArray());
+
+    // invert y and z of Rot
+    a3d::Matrix3d Mr(+Rot.at<double>(0,0), +Rot.at<double>(0,1), +Rot.at<double>(0,2),
+                     -Rot.at<double>(1,0), -Rot.at<double>(1,1), -Rot.at<double>(1,2),
+                     -Rot.at<double>(2,0), -Rot.at<double>(2,1), -Rot.at<double>(2,2));
+    // quaternion rotation
+    a3d::Quaterniond r = a3d::Quaterniond(Mr);
+    cout << "quaternion r : " << r << endl;
+
+    // rotate z with quaternion r
+    a3d::Vector3d normal = r.rotate(a3d::Vector3d(0,0,1));
+    cout << "normal of plane : " << normal << endl;
+
 
     //video capture container
     Mat frame;
+    // keypoints container
+    Mat im_with_keypoints;
     //video capture object.
     VideoCapture capture(1);
 
@@ -31,8 +82,32 @@ int main( int argc, char** argv )
         getchar();
         return -1;
     }
-    //capture.set(CV_CAP_PROP_FRAME_WIDTH,1280);
-    //capture.set(CV_CAP_PROP_FRAME_HEIGHT,720);
+
+    // set
+    double Brightness, exposure, Contrast, Saturation, Gain;
+
+    // Det här funkar bra som fan!
+    capture.set(CAP_PROP_FRAME_WIDTH, 1920);
+    capture.set(CAP_PROP_FRAME_HEIGHT, 1080);
+    capture.set(CAP_PROP_GAIN, 0.0);
+    capture.set(CAP_PROP_SATURATION, 255.0);
+    capture.set(CAP_PROP_BRIGHTNESS, 100.0);
+    capture.set(CAP_PROP_EXPOSURE, -5.0);
+    capture.set(CAP_PROP_CONTRAST, 255.0);
+
+    Brightness = capture.get(CAP_PROP_BRIGHTNESS);
+    Contrast   = capture.get(CAP_PROP_CONTRAST );
+    Saturation = capture.get(CAP_PROP_SATURATION);
+    Gain       = capture.get(CAP_PROP_GAIN);
+    exposure   = capture.get(CAP_PROP_EXPOSURE);
+
+    cout<<"===================================="<<endl<<endl;
+    cout<<"Default Brightness--------> "<<Brightness<<endl;
+    cout<<"Default Contrast----------> "<<Contrast<<endl;
+    cout<<"Default Saturation--------> "<<Saturation<<endl;
+    cout<<"Default Gain--------------> "<<Gain<<endl<<endl;
+    cout<<"Default Exposure----------> "<<exposure<<endl<<endl;
+    cout<<"===================================="<<endl;
 
     // Setup SimpleBlobDetector parameters.
     SimpleBlobDetector::Params params;
@@ -72,21 +147,9 @@ int main( int argc, char** argv )
     bool pause = false;
     float X = 0;
     float Y = 0;
-    float prevx[2], prevy[2] = {0};
 
-    // read frame
     capture >> frame;
-
-
-    // Detect blobs
-    detector->detect( frame, keypoints );
-    // Store x and y keypoints in two arrays
-    for(int i = 0; i < keypoints.size(); i++){
-        prevx[i] = keypoints[i].pt.x;
-        prevy[i] = keypoints[i].pt.y;
-      //  cout << i << ": " << X << ' ' << Y ;
-    }
-
+    cout << "frame size: " << frame.size() << endl;
     while(true){
 
         // read frame
@@ -95,28 +158,40 @@ int main( int argc, char** argv )
         // Detect blobs
         detector->detect( frame, keypoints );
 
-        for(int i = 0; i < keypoints.size(); i++){
+        for(int i = 0; i < keypoints.size(); i++) {
             X = keypoints[i].pt.x;
             Y = keypoints[i].pt.y;
-
-            if(!compare(prevx, prevy, X, Y)){
-                prevx[0] = X;
-                prevy[0] = Y;
-            }
-            else{
-                prevx[1] = X;
-                prevy[1] = Y;
-            }
-
-           // cout << i << ": " << X << ' ' << Y << endl;
         }
-       // cout << round(prevx[0]) << ' ' << round(prevy[0]) << ' ';
-        //cout << round(prevx[1]) << ' ' << round(prevy[1]) ;
-        //cout << endl;
+
+        // Calculate projection vector from camera
+        vector<double> v;
+        v.push_back((X - cx)/fx);
+        v.push_back((Y - cy)/fx);
+        v.push_back(1);
+/*
+        cout << "v : ";
+        for(int i = 0; i < 3; i++)
+        {
+            cout << v[i] << endl;
+        }
+*/
+        a3d::Vector3d v2, transvec2, intersection;
+
+        for(auto i : v){
+            v2[i] = v[i];
+            transvec2[i] = transvec[i];
+        }
+
+        // calculate intersection of normal vector and projection vector
+        // calculate d = length of line intersecting plane
+        double d;
+        v2 = v2.normalized();
+        d = (transvec2 * normal)/(v2 * normal);
+        intersection = d * v2;
+
+        cout << "intersection: " << intersection << endl;
 
 
-        // save keypoints
-        Mat im_with_keypoints;
 
         // Draw detected blobs as red circles.
         // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
@@ -126,7 +201,6 @@ int main( int argc, char** argv )
         // Show blobs
         namedWindow("keypoints", 0 );
         imshow("keypoints", im_with_keypoints );
-        //resizeWindow("keypoints", 1920, 1080);
         //imshow("binary image", binarizedImage);
         waitKey(1);
 
@@ -154,34 +228,105 @@ int main( int argc, char** argv )
         }
 
     }
-
-}*/
-/*
-bool compare(float prevx[], float prevy[], float X, float Y){
-    double dist1 = sqrt(pow(double(X - prevx[0]), 2.0) + pow(double(Y - prevy[0]),2.0));
-    double dist2 = sqrt(pow(double(X - prevx[1]), 2.0) + pow(double(Y - prevy[1]),2.0));
-    if(dist1 < dist2){
-       // cout << dist1 << " less than " << dist2 << endl;
-        return true;
-    }
-    //cout << dist1 << " more than " << dist2 << endl;
-    return false;
-
 }
 
-*/
+
+/* // [R|T] matrix with rotation and translation from extrinsic values
+ *
+cv::Mat componentMat ( transvec, true );
+std::cout << componentMat << endl;
+
+Mat RT(3,4, CV_32FC1);
+
+hconcat(Rot, componentMat, RT);
+
+cout << "[R|T] : " << RT << endl;
+
+
+cout << "transvec: " <<  endl;
+for(int i = 0; i < 3; i++)
+{
+    cout << transvec[i] << " ";
+}*/
+
+/*
+// Class based main code, not working atm
+// Reading camera parameters from XML to compute normal
 
 int main( int argc, char** argv ) {
 
+    const string calibrationFile = argc > 1 ? argv[1] : "../out_camera_data.xml";
+    FileStorage fs(calibrationFile , FileStorage::READ);
+    if (!fs.isOpened())
+    {
+        cerr << "failed to open " << calibrationFile << endl;
+        return 1;
+    }
+    Mat cameraMatrix, distCoeffs, avgProjError, perViewReprojError, extrinsicParam, imagePoints;
+    fs["camera_matrix"] >> cameraMatrix;
+    fs["extrinsic_parameters"] >> extrinsicParam;
+    fs.release();
 
-    WebCam* cam1 = new WebCam();
+
+    vector<double> rotvec, transvec;
+    for( int i = 0; i < 3; i++)
+    {
+        double value = extrinsicParam.at<double>(0,i);
+        rotvec.push_back(value);
+    }
+
+    for(int i = 3; i < 6; i++)
+    {
+       double value = extrinsicParam.at<double>(0,i);
+       transvec.push_back(value);
+    }
+
+    Mat Rot(3,3, CV_32FC1);
+    Rodrigues(rotvec, Rot, noArray());
+
+
+    cv::Mat componentMat ( transvec, true );
+    std::cout << componentMat << endl;
+
+    Mat RT(3,4, CV_32FC1);
+
+    hconcat(Rot, componentMat, RT);
+
+    cout << "[R|T] : " << RT << endl;
+
+
+    cout << "transvec: " <<  endl;
+    for(int i = 0; i < 3; i++)
+    {
+        cout << transvec[i] << " ";
+    }
+
+    a3d::Matrix3d Mr(+Rot.at<double>(0,0), +Rot.at<double>(0,1), +Rot.at<double>(0,2),
+                     -Rot.at<double>(1,0), -Rot.at<double>(1,1), -Rot.at<double>(1,2),
+                     -Rot.at<double>(2,0), -Rot.at<double>(2,1), -Rot.at<double>(2,2));
+
+    a3d::Quaterniond r = a3d::Quaterniond(Mr);
+    cout << "quaternion r : " << r << endl;
+
+    a3d::Vector3d normal = r.rotate(a3d::Vector3d(0,0,1));
+
+    cout << "normal of plane : " << normal << endl;
+
+    //a3d::Vector3d floor_normal = r * a3d::Vector3d(0,0,1);
+
+    return 0;
+
+
+
+
+    WebCam cam1;
     vector<KeyPoint> pos;
 
 
     while(true) {
 
         // store sphero pos in vector
-        cam1->updateCamera();
+        cam1.updateCamera();
 
         // save keypoints
         Mat im_with_keypoints;
@@ -189,7 +334,7 @@ int main( int argc, char** argv ) {
         // Draw detected blobs as red circles.
         // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
         // the size of the circle corresponds to the size of blob
-        drawKeypoints( cam1->frame, cam1->keypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
+        drawKeypoints( cam1.frame, cam1.keypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
 
         // Show blobs
         namedWindow("keypoints", 0 );
@@ -203,7 +348,7 @@ int main( int argc, char** argv ) {
         switch (waitKey(10)) {
 
             case 27: //'esc' key has been pressed, exit program.
-                delete cam1;
+                //delete cam1;
                 return 0;
             case 112: //'p' has been pressed. this will pause/resume the code.
                 pause = !pause;
@@ -221,8 +366,8 @@ int main( int argc, char** argv ) {
                         }
                     }
                 }
-
-
         }
     }
-}
+
+
+}*/
