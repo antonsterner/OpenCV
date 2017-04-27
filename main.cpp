@@ -32,27 +32,26 @@ int main()
     /* Constants and Variables definitions */
 
     bool newbase = false, pause = false;
-    double value, Brightness, exposure, Contrast, Saturation, Gain, newX = 0.0, newY = 0.0;
+    double value, Brightness, exposure, Contrast, Saturation, Gain, redX = 0.0, redY = 0.0, blueX = 0.0, blueY = 0.0;
     double dr, db;
     float rX = 0, rY = 0, bX = 0, bY = 0; //
-    int newbasecounter = 0;
+    int newbasecounter = 0, j = 0;
     Mat cameraMatrix, extrinsicParam; // camera calibration data
     Mat Rot(3,3, CV_32FC1); // for Rodrigues vector->matrix transform
     Mat frame; // video capture container
     Mat im_with_keypoints; // keypoints container
     Mat imgHSV, redthresholdimg, bluethresholdimg;
-    vector<double> rotvec, transvec;
+    vector<double> rotvec;// transvec;
     vector<double> rv, bv;
     vector<double> ge0, ge1;
  //   vector<double> nyBasPos; //vector att spara postitioner i
-    vector<double> x0, x1, x2, x1x0, x2x0;
+    vector<double> x0, x1, x2, x3, x1x0, x2x0, nyBasPos;
     vector<KeyPoint> redkeypoints, bluekeypoints; // Storage for blob keypoints
-    a3d::Vector3d v2r, v2b, transvec2, normal;
-    a3d::Vector3<double> redintersection, blueintersection, nyBasPos, e0, e1;
+    a3d::Vector3d v2r, v2b, transvec, transvec2, normal, redintersection, blueintersection, e0, e1;
     namedWindow("keypoints", WINDOW_NORMAL);
     namedWindow("red image", WINDOW_NORMAL);
+    namedWindow("blue image", WINDOW_NORMAL);
     const Scalar RED(0,0,255), GREEN(0,255,0);
-   // namedWindow("blue image", WINDOW_NORMAL);
     // HSV color-space threshold values
     int redMinH = 0;
     int redMaxH = 20;
@@ -83,7 +82,7 @@ int main()
     params.maxArea = 10000;
     // Filter by Circularity
     params.filterByCircularity = true;
-    params.minCircularity = 0.75;
+    params.minCircularity = 0.1;
     // Filter by Convexity
     params.filterByConvexity = false;
     // Filter by Inertia
@@ -101,16 +100,14 @@ int main()
     double cy = cameraMatrix.at<double>(1,2);
 
     // separate the rotation and translation of extrinsic parameters
+    // transvec as Vector3d, rotvec as vector<double>
+
+    transvec = {extrinsicParam.at<double>(0,3), extrinsicParam.at<double>(0,4), extrinsicParam.at<double>(0,5)};
+
     for( int i = 0; i < 3; i++)
     {
         value = extrinsicParam.at<double>(0,i);
         rotvec.push_back(value);
-    }
-
-    for(int i = 3; i < 6; i++)
-    {
-        value = extrinsicParam.at<double>(0,i);
-        transvec.push_back(value);
     }
 
     // Rodrigues transforms rotation vector from extrinsics to 3x3 array, stored in matrix Rot
@@ -129,7 +126,7 @@ int main()
     cout << "normal of plane : " << normal << endl;
 
     //video capture object.
-    VideoCapture capture(1);
+    VideoCapture capture(0);
 
     if(!capture.isOpened()){
         cout << "ERROR ACQUIRING VIDEO FEED\n";
@@ -160,22 +157,9 @@ int main()
     cout<<"Default Exposure----------> "<<exposure<<endl<<endl;
     cout<<"===================================="<<endl;
 
-
-/*
-    // coordinate base
-    vector<int> x0 = {-1185, -666}; // top left ( camera perspective )
-    vector<int> x1 = {1337, -727};  // top right
-    vector<int> x2 = {-1131, 708};  // bottom left
-
-*/
     // capture one frame and print image size
     capture >> frame;
     cout << "frame size: " << frame.size() << endl;
-
-    // vector into vector3d, because cant use push.back() in vector3d?
-    for(int i = 0; i < transvec.size() ; i++){
-        transvec2[i] = transvec[i];
-    }
 
     while(true){
 
@@ -186,83 +170,82 @@ int main()
 
         // threshold red
         inRange(imgHSV, Scalar(redMinH, redMinS, redMinV), Scalar(redMaxH, redMaxS, redMaxV), redthresholdimg);
-        //morphological opening (remove small objects from the foreground)
-        //erode(redthresholdimg, redthresholdimg, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
-        //dilate( redthresholdimg, redthresholdimg, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
         //morphological closing (fill small holes in the foreground)
         dilate( redthresholdimg, redthresholdimg, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
         erode( redthresholdimg, redthresholdimg, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
-/*
+
         // threshold blue
         inRange(imgHSV, Scalar(blueMinH, blueMinS, blueMinV), Scalar(blueMaxH, blueMaxS, blueMaxV), bluethresholdimg);
         //morphological closing (fill small holes in the foreground)
         dilate( bluethresholdimg, bluethresholdimg, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
         erode( bluethresholdimg, bluethresholdimg, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
-*/
+
         // Detect red blobs
         detector->detect( redthresholdimg, redkeypoints );
         // Detect blue blobs
-  //      detector->detect( bluethresholdimg, bluekeypoints );
+        detector->detect( bluethresholdimg, bluekeypoints );
 
         for(int i = 0; i < redkeypoints.size(); i++) {
             rX = redkeypoints[i].pt.x;
             rY = redkeypoints[i].pt.y;
-        }/*
+        }
         for(int i = 0; i < bluekeypoints.size(); i++) {
             bX = bluekeypoints[i].pt.x;
             bY = bluekeypoints[i].pt.y;
         }
-*/
+
         // Calculate projection vector from camera
         rv = {((rX - cx)/fx), ((rY - cy)/fx), 1};
+        bv = {((bX - cx)/fx), ((bY - cy)/fx), 1};
 
-   /*     bv.push_back((bX - cx)/fx);
-        bv.push_back((bY - cy)/fx);
-        bv.push_back(1);
-*/
         // vector into vector3d
         for(int i = 0; i < rv.size() ; i++){
             v2r[i] = rv[i];
         }
-    /*    for(int i = 0; i < bv.size() ; i++){
+        for(int i = 0; i < bv.size() ; i++){
             v2b[i] = bv[i];
         }
-*/
+
         // calculate intersection of normal vector and projection vector
         // calculate d = length of line intersecting plane
         v2r = v2r.normalized();
-        dr = (transvec2 * normal)/(v2r * normal);
+        dr = (transvec * normal)/(v2r * normal);
         redintersection = dr * v2r;
-/*
+
         v2b = v2b.normalized();
-        db = (transvec2 * normal)/(v2b * normal);
+        db = (transvec * normal)/(v2b * normal);
         blueintersection = db * v2b;
-*/
+
         // calculate positions in the new base
         char key = (char)waitKey(capture.isOpened() ? 50 : 1); //int riktigt säker på vad som ska stå istället för 1, stod delay förut
         if( capture.isOpened() && key == 'b' )
         {
-            for(int i = 0; i < 2; i++)
-            {
-                nyBasPos[i] = redintersection[i];
+
+            for(int k = 0; k < 2; k++) {
+                nyBasPos.push_back(redintersection[k]);
                 newbasecounter++;
+                //j++;
             }
         }
         // only run this one time to calculate the new base
-        if( !newbase && newbasecounter == 6 )
+        if( !newbase && newbasecounter == 8 )
         {
+            // x0,x1,x2 corner points, x3 middle point
             x0 = {nyBasPos[0], nyBasPos[1]};
             x1 = {nyBasPos[2], nyBasPos[3]};
             x2 = {nyBasPos[4], nyBasPos[5]};
+            x3 = {nyBasPos[6], nyBasPos[7]};
 
             //x1 - x0
             x1x0 = {x1[0]-x0[0],x1[1]-x0[1]};
             //x2 - x0
             x2x0 = {x2[0]-x0[0],x2[1]-x0[1]};
 
-            //ny bas
+            //new base, vector<double>
             ge0 = (x1-x0)/(sqrt((x1x0[0]*x1x0[0]+x1x0[1]*x1x0[1])));
             ge1 = (x2-x0)/(sqrt((x2x0[0]*x2x0[0]+x2x0[1]*x2x0[1])));
+
+            //new base, Vector3d
             e0 = {ge0[0], ge0[1], 0};
             e1 = {ge1[0], ge1[1], 0};
             newbase = true;
@@ -270,27 +253,35 @@ int main()
 
         //position in new coordinate base
         if(newbase){
-            newX = e0*redintersection;
-            newY = e1*redintersection;
+            //cout << "RED : " << redintersection;
+            // coordinates with origin in middle of AR marker
+            redintersection[0] -= x3[0];
+            redintersection[1] -= x3[1];
+            redX = e0*redintersection;
+            redY = e1*redintersection;
+
+            blueintersection[0] -= x3[0];
+            blueintersection[1] -= x3[1];
+            blueX = e0*redintersection;
+            blueY = e1*redintersection;
         }
 
         //----------------------------- Output Text ------------------------------------------------
         //! [output_text]
         string msg = (newbase) ? "Calibrated" : "Press 'b' to start";
         int baseLine = 0;
-        Size textSize = getTextSize(msg, 1, 1, 1, &baseLine);
+        Size textSize = getTextSize(msg, FONT_HERSHEY_PLAIN, 2, 2, &baseLine);
         Point textOrigin(frame.cols - 2*textSize.width - 10, frame.rows - 2*baseLine - 10);
 
         if(!newbase)
         {
-            msg = format( "%d/%d", newbasecounter/2, 3);
+            msg = format( "%d/%d", newbasecounter/2, 4);
         }
 
-        putText( frame, msg, textOrigin, 1, 1, newbase ?  GREEN : RED);
+        putText( frame, msg, textOrigin, FONT_HERSHEY_PLAIN, 2, newbase ?  GREEN : RED, 2);
 
-        cout << "RED : " << redintersection;
-        cout << "   New Pos : " << newX << " , " << newY << endl;
-        //cout << "   BLUE : " << blueintersection << endl;
+
+        cout << "   Red Pos : " << redX << " , " << redY << "   Blue Pos : " << blueX << " , " << blueY<< endl;
 
         imshow("red image", redthresholdimg);
        // imshow("blue image", bluethresholdimg);
@@ -354,11 +345,6 @@ vector<double> operator-(vector<double> &vec1, vector<double> &vec2){
 vector<double> operator/(vector<double> vec1, double d){
     return {vec1[0]/d, vec1[1]/d};
 }
-/*
-void operator=(vector<double> vec){
-
-    this = {vec[0], vec[1], 0.0};
-}*/
 
 /* // [R|T] matrix with rotation and translation from extrinsic values
  *
