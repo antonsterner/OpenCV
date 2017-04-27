@@ -20,6 +20,8 @@ using namespace std;
 
 int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam);
 
+static void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1);
+
 vector<double> operator-(vector<double> &vec1, vector<double> &vec2);
 
 vector<double> operator/(vector<double> vec1, double d);
@@ -41,13 +43,12 @@ int main()
     Mat frame; // video capture container
     Mat im_with_keypoints; // keypoints container
     Mat imgHSV, redthresholdimg, bluethresholdimg;
-    vector<double> rotvec;// transvec;
+    vector<double> rotvec;
     vector<double> rv, bv;
-    vector<double> ge0, ge1;
- //   vector<double> nyBasPos; //vector att spara postitioner i
+    vector<double> reade0, reade1, ge0, ge1;
     vector<double> x0, x1, x2, x3, x1x0, x2x0, nyBasPos;
     vector<KeyPoint> redkeypoints, bluekeypoints; // Storage for blob keypoints
-    a3d::Vector3d v2r, v2b, transvec, transvec2, normal, redintersection, blueintersection, e0, e1;
+    a3d::Vector3d v2r, v2b, transvec, normal, redintersection, blueintersection, e0, e1;
     namedWindow("keypoints", WINDOW_NORMAL);
     namedWindow("red image", WINDOW_NORMAL);
     namedWindow("blue image", WINDOW_NORMAL);
@@ -126,7 +127,7 @@ int main()
     cout << "normal of plane : " << normal << endl;
 
     //video capture object.
-    VideoCapture capture(0);
+    VideoCapture capture(1);
 
     if(!capture.isOpened()){
         cout << "ERROR ACQUIRING VIDEO FEED\n";
@@ -160,6 +161,23 @@ int main()
     // capture one frame and print image size
     capture >> frame;
     cout << "frame size: " << frame.size() << endl;
+
+    const string calibrationFile = "../base_config.xml";
+    FileStorage fs2(calibrationFile, FileStorage::READ); // Read the settings
+    if (!fs2.isOpened())
+    {
+        cout << "Could not open the configuration file: \"" << calibrationFile << "\"" << endl;
+    }
+    if(fs2.isOpened())
+    {
+        fs2["x3"] >> x3;
+        fs2["e0"] >> reade0;
+        fs2["e1"] >> reade1;
+        e0 = {reade0[0], reade0[1], 0};
+        e1 = {reade1[0], reade1[1], 0};
+        newbase = true;
+    }
+
 
     while(true){
 
@@ -230,7 +248,7 @@ int main()
         // only run this one time to calculate the new base
         if( !newbase && newbasecounter == 8 )
         {
-            // x0,x1,x2 corner points, x3 middle point
+             // x0,x1,x2 corner points, x3 middle point
             x0 = {nyBasPos[0], nyBasPos[1]};
             x1 = {nyBasPos[2], nyBasPos[3]};
             x2 = {nyBasPos[4], nyBasPos[5]};
@@ -240,7 +258,11 @@ int main()
             x1x0 = {x1[0]-x0[0],x1[1]-x0[1]};
             //x2 - x0
             x2x0 = {x2[0]-x0[0],x2[1]-x0[1]};
-
+            //x1 - x0
+       /*     x1x0 = {nyBasPos[2]-nyBasPos[0],nyBasPos[3]-nyBasPos[1]};
+            //x2 - x0
+            x2x0 = {nyBasPos[4]-nyBasPos[0],nyBasPos[5]-nyBasPos[1]};
+*/
             //new base, vector<double>
             ge0 = (x1-x0)/(sqrt((x1x0[0]*x1x0[0]+x1x0[1]*x1x0[1])));
             ge1 = (x2-x0)/(sqrt((x2x0[0]*x2x0[0]+x2x0[1]*x2x0[1])));
@@ -248,12 +270,16 @@ int main()
             //new base, Vector3d
             e0 = {ge0[0], ge0[1], 0};
             e1 = {ge1[0], ge1[1], 0};
+            // converting to vector<double> to be able to write to file
+            reade0 = {e0[0], e0[1]};
+            reade1 = {e1[0], e1[1]};
             newbase = true;
+
+            saveSpheroPositions(x3, reade0, reade1);
         }
 
         //position in new coordinate base
         if(newbase){
-            //cout << "RED : " << redintersection;
             // coordinates with origin in middle of AR marker
             redintersection[0] -= x3[0];
             redintersection[1] -= x3[1];
@@ -262,13 +288,13 @@ int main()
 
             blueintersection[0] -= x3[0];
             blueintersection[1] -= x3[1];
-            blueX = e0*redintersection;
-            blueY = e1*redintersection;
+            blueX = e0*blueintersection;
+            blueY = e1*blueintersection;
         }
 
         //----------------------------- Output Text ------------------------------------------------
         //! [output_text]
-        string msg = (newbase) ? "Calibrated" : "Press 'b' to start";
+        string msg = (newbase) ? "Calibrated" : "Press 'b' four times to calibrate";
         int baseLine = 0;
         Size textSize = getTextSize(msg, FONT_HERSHEY_PLAIN, 2, 2, &baseLine);
         Point textOrigin(frame.cols - 2*textSize.width - 10, frame.rows - 2*baseLine - 10);
@@ -277,27 +303,23 @@ int main()
         {
             msg = format( "%d/%d", newbasecounter/2, 4);
         }
-
         putText( frame, msg, textOrigin, FONT_HERSHEY_PLAIN, 2, newbase ?  GREEN : RED, 2);
 
-
+        cout << "red : " << redintersection;
         cout << "   Red Pos : " << redX << " , " << redY << "   Blue Pos : " << blueX << " , " << blueY<< endl;
 
         imshow("red image", redthresholdimg);
-       // imshow("blue image", bluethresholdimg);
+        imshow("blue image", bluethresholdimg);
 
-        // Draw detected blobs as red circles.
-        // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
-        // the size of the circle corresponds to the size of blob
+        // Draw detected blobs as green circles.
         drawKeypoints( frame, redkeypoints, im_with_keypoints, Scalar(0,255,0), DrawMatchesFlags::DEFAULT );
-       // drawKeypoints( frame, bluekeypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DEFAULT );
+        drawKeypoints( frame, bluekeypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DEFAULT );
 
         // Show blobs
         imshow("keypoints", im_with_keypoints );
-        //imshow("binary image", binarizedImage);
         waitKey(1);
 
-        switch(waitKey(10)){
+        switch(waitKey(1)){
 
             case 27: //'esc' key has been pressed, exit program.
                 return 0;
@@ -337,6 +359,26 @@ int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam){
     fs.release();
 
     cout << "camera matrix : " << cameraMatrix << endl;
+}
+
+// Print sphero positions and base vectors to the output file
+static void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1)
+{
+    const string outputFileName = "../base_config.xml";
+    FileStorage fs( outputFileName, FileStorage::WRITE );
+
+    time_t tm;
+    time( &tm );
+    struct tm *t2 = localtime( &tm );
+    char buf[1024];
+    strftime( buf, sizeof(buf), "%c", t2 );
+
+    fs << "calibration_time" << buf;
+
+    fs << "x3" << x3;
+    fs << "e0" << e0;
+    fs << "e1" << e1;
+
 }
 
 vector<double> operator-(vector<double> &vec1, vector<double> &vec2){
