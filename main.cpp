@@ -21,9 +21,11 @@ using namespace std;
 
 int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam);
 
+
 void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase);
 
-void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1);
+static void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1);
+
 
 vector<double> operator-(vector<double> &vec1, vector<double> &vec2);
 
@@ -56,6 +58,7 @@ int main()
     Mat frame; // video capture container
     Mat im_with_keypoints; // keypoints container
     Mat imgHSV, redthresholdimg, bluethresholdimg;
+
         //vector<double> rotvec;// transvec;
     vector<double> rv, bv, reade0, reade1;
         //vector<double> ge0, ge1;
@@ -68,6 +71,7 @@ int main()
     vector<KeyPoint> redkeypoints, bluekeypoints; // Storage for blob keypoints
     a3d::Vector3d v2r, v2b, transvec, transvec2, normal, redintersection, blueintersection;
     a3d::Vector3d e0 = {0.0, 0.0, 0.0}, e1 = {0.0, 0.0, 0.0};
+
     namedWindow("keypoints", WINDOW_NORMAL);
     namedWindow("red image", WINDOW_NORMAL);
     namedWindow("blue image", WINDOW_NORMAL);
@@ -131,6 +135,23 @@ int main()
     // capture one frame and print image size
     capture >> frame;
     cout << "frame size: " << frame.size() << endl;
+
+    const string calibrationFile = "../base_config.xml";
+    FileStorage fs2(calibrationFile, FileStorage::READ); // Read the settings
+    if (!fs2.isOpened())
+    {
+        cout << "Could not open the configuration file: \"" << calibrationFile << "\"" << endl;
+    }
+    if(fs2.isOpened())
+    {
+        fs2["x3"] >> x3;
+        fs2["e0"] >> reade0;
+        fs2["e1"] >> reade1;
+        e0 = {reade0[0], reade0[1], 0};
+        e1 = {reade1[0], reade1[1], 0};
+        newbase = true;
+    }
+
 
     while(true){
 
@@ -241,7 +262,6 @@ int main()
 
         //position in new coordinate base
         if(newbase){
-            //cout << "RED : " << redintersection;
             // coordinates with origin in middle of AR marker
             redintersection[0] -= x3[0];
             redintersection[1] -= x3[1];
@@ -250,13 +270,13 @@ int main()
 
             blueintersection[0] -= x3[0];
             blueintersection[1] -= x3[1];
-            blueX = e0*redintersection;
-            blueY = e1*redintersection;
+            blueX = e0*blueintersection;
+            blueY = e1*blueintersection;
         }
 
         //----------------------------- Output Text ------------------------------------------------
         //! [output_text]
-        string msg = (newbase) ? "Calibrated" : "Press 'b' to start";
+        string msg = (newbase) ? "Calibrated" : "Press 'b' four times to calibrate";
         int baseLine = 0;
         Size textSize = getTextSize(msg, FONT_HERSHEY_PLAIN, 2, 2, &baseLine);
         Point textOrigin(frame.cols - 2*textSize.width - 10, frame.rows - 2*baseLine - 10);
@@ -265,10 +285,9 @@ int main()
         {
             msg = format( "%d/%d", newbasecounter/2, 4);
         }
-
         putText( frame, msg, textOrigin, FONT_HERSHEY_PLAIN, 2, newbase ?  GREEN : RED, 2);
 
-
+        cout << "red : " << redintersection;
         cout << "   Red Pos : " << redX << " , " << redY << "   Blue Pos : " << blueX << " , " << blueY<< endl;
 
         imshow("red image", redthresholdimg);
@@ -281,10 +300,9 @@ int main()
 
         // Show blobs
         imshow("keypoints", im_with_keypoints );
-        //imshow("binary image", binarizedImage);
         waitKey(1);
 
-        switch(waitKey(10)){
+        switch(waitKey(1)){
 
             case 27: //'esc' key has been pressed, exit program.
                 return 0;
@@ -329,7 +347,8 @@ int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam){
     cout << "camera matrix : " << cameraMatrix << endl;
 }
 
-void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase)
+
+static void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase)
 {
     const string calibrationFile = "../base_config.xml";
     FileStorage fs2(calibrationFile, FileStorage::READ); // Read the settings
@@ -348,8 +367,10 @@ void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<do
     }
 }
 
+
 // Print sphero positions and base vectors to the output file
-void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1)
+static void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1)
+
 {
     const string outputFileName = "../base_config.xml";
     FileStorage fs( outputFileName, FileStorage::WRITE );
