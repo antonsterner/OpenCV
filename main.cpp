@@ -203,9 +203,7 @@ int main()
 
             e0 = {1.1, 1.1, 1.1};
             e1 = {1.1, 1.1, 1.1};
-
-
-            cout << "newbasecounter: " << newbasecounter;
+            
         }
 
         // calculate positions in the new base if b is pressed
