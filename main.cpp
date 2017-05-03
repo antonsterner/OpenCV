@@ -11,8 +11,8 @@
 #include <iostream>
 #include "opencv2/opencv.hpp"
 //#include "Camera.h"
-//#include "../linearalgebra.hh"        //<-- Anton (windows)
-#include "../OpenCV/linearalgebra.hh"
+#include "../linearalgebra.hh"        //<-- Anton (windows)
+//#include "../OpenCV/linearalgebra.hh"
 
 
 using namespace cv;
@@ -22,7 +22,7 @@ using namespace std;
 int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam);
 
 
-void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase);
+static void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase);
 
 static void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1);
 
@@ -135,23 +135,6 @@ int main()
     // capture one frame and print image size
     capture >> frame;
     cout << "frame size: " << frame.size() << endl;
-
-    const string calibrationFile = "../base_config.xml";
-    FileStorage fs2(calibrationFile, FileStorage::READ); // Read the settings
-    if (!fs2.isOpened())
-    {
-        cout << "Could not open the configuration file: \"" << calibrationFile << "\"" << endl;
-    }
-    if(fs2.isOpened())
-    {
-        fs2["x3"] >> x3;
-        fs2["e0"] >> reade0;
-        fs2["e1"] >> reade1;
-        e0 = {reade0[0], reade0[1], 0};
-        e1 = {reade1[0], reade1[1], 0};
-        newbase = true;
-    }
-
 
     while(true){
 
@@ -351,20 +334,21 @@ int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam){
 static void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase)
 {
     const string calibrationFile = "../base_config.xml";
-    FileStorage fs2(calibrationFile, FileStorage::READ); // Read the settings
-    if (!fs2.isOpened())
+    FileStorage fs(calibrationFile, FileStorage::READ); // Read the settings
+    if (!fs.isOpened())
     {
         cout << "Could not open the configuration file: \"" << calibrationFile << "\"" << endl;
     }
-    if(fs2.isOpened())
+    if(fs.isOpened())
     {
-        fs2["x3"] >> x3;
-        fs2["e0"] >> reade0;
-        fs2["e1"] >> reade1;
+        fs["x3"] >> x3;
+        fs["e0"] >> reade0;
+        fs["e1"] >> reade1;
         e0 = {reade0[0], reade0[1], 0};
         e1 = {reade1[0], reade1[1], 0};
         newbase = true;
     }
+    fs.release();
 }
 
 
@@ -386,6 +370,7 @@ static void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<dou
     fs << "x3" << x3;
     fs << "e0" << e0;
     fs << "e1" << e1;
+    fs.release();
 
 }
 
@@ -447,6 +432,7 @@ a3d::Vector3d calculateNormal(Mat cameraMatrix, Mat extrinsicParam)
     // rotate z with quaternion r
     normal = r.rotate(a3d::Vector3d(0,0,1));
     cout << "normal of plane : " << normal << endl;
+    return normal;
 }
 
 void setCameraSettings(VideoCapture &capture)
@@ -454,8 +440,8 @@ void setCameraSettings(VideoCapture &capture)
     double Brightness, exposure, Contrast, Saturation, Gain;
 
     // Det här funkar bra som fan!
-    capture.set(CAP_PROP_FRAME_WIDTH, 1920);
-    capture.set(CAP_PROP_FRAME_HEIGHT, 1080);
+    capture.set(CAP_PROP_FRAME_WIDTH, 1280);
+    capture.set(CAP_PROP_FRAME_HEIGHT, 720);
     capture.set(CAP_PROP_GAIN, 0.0);
     capture.set(CAP_PROP_SATURATION, 255.0);
     capture.set(CAP_PROP_BRIGHTNESS, 100.0);
