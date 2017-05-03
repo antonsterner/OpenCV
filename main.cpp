@@ -91,17 +91,13 @@ int main()
     // Setup SimpleBlobDetector parameters.
     SimpleBlobDetector::Params params;
 
-    /********************************
-     * function that sets params
-     ********************************/
+    //set blobtracking-params
     setParams(params);
 
     // Set up detector with params
     Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
 
-    /*********************************
-     * Read camera calibration data
-     *********************************/
+    //read camera calibration data
     readCalibrationData(cameraMatrix, extrinsicParam);
 
     // Try to read Sphero calibration data points
@@ -117,9 +113,7 @@ int main()
 
     transvec = {extrinsicParam.at<double>(0,3), extrinsicParam.at<double>(0,4), extrinsicParam.at<double>(0,5)};
 
-    /***********************************
-     * function that calculates normal
-     ***********************************/
+    //calculate normal
     normal = calculateNormal(cameraMatrix, extrinsicParam);
 
     //video capture object.
@@ -131,11 +125,8 @@ int main()
         return -1;
     }
 
-    /*********************************************************************************
-     * function that sets the camera settings so that we can se the "glowing" spheros
-     *********************************************************************************/
+    //set camera settings so we can see our "glowing" spheros
     setCameraSettings(capture);
-
 
     // capture one frame and print image size
     capture >> frame;
@@ -180,11 +171,11 @@ int main()
 
         // vector into vector3d
         for(int i = 0; i < rv.size() ; i++){
-            v2r[i] = rv[i];
+            v2r[i] = rv[i];     //red
         }
 
         for(int i = 0; i < bv.size() ; i++){
-            v2b[i] = bv[i];
+            v2b[i] = bv[i];     //blue
         }
 
 
@@ -198,15 +189,26 @@ int main()
         db = (transvec * normal)/(v2b * normal);
         blueintersection = db * v2b;
 
-        // calculate positions in the new base
-
+        //re-calibrate the new base if c is pressed
         char keyc = (char)waitKey(capture.isOpened() ? 50 : 1);
         if( capture.isOpened() && keyc == 'c' )
         {
-            newbase = false;
-            newbasecounter = 0;
+            newbase = false;        //we no longer want this base
+
+            while(!nyBasPos.empty())
+            {
+                nyBasPos.pop_back();
+                newbasecounter--;
+            }
+
+            e0 = {1.1, 1.1, 1.1};
+            e1 = {1.1, 1.1, 1.1};
+
+
+            cout << "newbasecounter: " << newbasecounter;
         }
 
+        // calculate positions in the new base if b is pressed
         char key = (char)waitKey(capture.isOpened() ? 50 : 1); //int riktigt säker på vad som ska stå istället för 1, stod delay förut
         if( capture.isOpened() && key == 'b' )
         {
@@ -216,28 +218,25 @@ int main()
                 newbasecounter++;
                 //j++;
             }
+            cout << "newbasecounter: " << newbasecounter;
         }
         // only run this one time to calculate the new base
         if( !newbase && newbasecounter == 8 )
         {
-            // x0,x1,x2 corner points, x3 middle point
+            // x0,x1,x2 corner points, x3 middle point (= where origin is going to be)
 
-            //man skulle kunna skicka in enbart nyBasPos i funktionen, men då måste man re-definiera x0-x2 i funktionen
-            //vi kommer behöva i alla fall x3 senare i koden.
             x0 = {nyBasPos[0], nyBasPos[1]};
             x1 = {nyBasPos[2], nyBasPos[3]};
             x2 = {nyBasPos[4], nyBasPos[5]};
             x3 = {nyBasPos[6], nyBasPos[7]};
 
-            /******************************************
-             * function that calculates new base
-             ******************************************/
+            //calculate new base
             calculateNewBase(x0, x1, x2, e0, e1);
 
             // converting to vector<double> to be able to write to file
             reade0 = {e0[0], e0[1]};
             reade1 = {e1[0], e1[1]};
-            newbase = true;
+            newbase = true;             //we now have a new base
 
             saveSpheroPositions(x3, reade0, reade1);
         }
@@ -311,9 +310,7 @@ int main()
 }
 
 /**************************************************
- *
  * Functions
- *
  **************************************************/
 
 // read camera matrix and extrinsics from XML-file
@@ -466,13 +463,14 @@ void calculateNewBase(vector<double> x0, vector<double> x1, vector<double> x2, a
     vector<double>  x1x0, x2x0;
     vector<double> ge0, ge1;
 
-    if( x0[0] == x1[0] && x0[1] == x1[1] && x0[2] == x1[2])
+    //if the positions happen to be the same, this won't give e0 and e1 null
+    if( x0[0] == x1[0] && x0[1] == x1[1])
     {
         x0 = {1.1, 1.1, 1.1};
         x1 = {2.2, 2.2, 2.2};
     }
 
-    if( x0[0] == x2[0] && x0[1] == x2[1] && x0[2] == x2[2])
+    if( x0[0] == x2[0] && x0[1] == x2[1])
     {
         x0 = {1.1, 1.1, 1.1};
         x2 = {3.3, 3.3, 3.3};
