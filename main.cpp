@@ -11,7 +11,8 @@
 #include <iostream>
 #include "opencv2/opencv.hpp"
 //#include "Camera.h"
-#include "../linearalgebra.hh"
+//#include "../linearalgebra.hh"        //<-- Anton (windows)
+#include "../OpenCV/linearalgebra.hh"
 
 
 using namespace cv;
@@ -20,9 +21,21 @@ using namespace std;
 
 int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam);
 
+void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase);
+
+void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1);
+
 vector<double> operator-(vector<double> &vec1, vector<double> &vec2);
 
 vector<double> operator/(vector<double> vec1, double d);
+
+void setParams(SimpleBlobDetector::Params &params);
+
+a3d::Vector3d calculateNormal(Mat cameraMatrix, Mat extrinsicParam);
+
+void setCameraSettings(VideoCapture &capture);
+
+void calculateNewBase(vector<double> x0, vector<double> x1, vector<double> x2, a3d::Vector3d &e0, a3d::Vector3d &e1);
 
 //void operator=(vector<double> vec);
 
@@ -32,26 +45,34 @@ int main()
     /* Constants and Variables definitions */
 
     bool newbase = false, pause = false;
-    double value, Brightness, exposure, Contrast, Saturation, Gain, redX = 0.0, redY = 0.0, blueX = 0.0, blueY = 0.0;
+        //double value;
+        //double Brightness, exposure, Contrast, Saturation, Gain,
+    double redX = 0.0, redY = 0.0, blueX = 0.0, blueY = 0.0;
     double dr, db;
     float rX = 0, rY = 0, bX = 0, bY = 0; //
     int newbasecounter = 0, j = 0;
     Mat cameraMatrix, extrinsicParam; // camera calibration data
-    Mat Rot(3,3, CV_32FC1); // for Rodrigues vector->matrix transform
+        //Mat Rot(3,3, CV_32FC1); // for Rodrigues vector->matrix transform
     Mat frame; // video capture container
     Mat im_with_keypoints; // keypoints container
     Mat imgHSV, redthresholdimg, bluethresholdimg;
-    vector<double> rotvec;// transvec;
-    vector<double> rv, bv;
-    vector<double> ge0, ge1;
+        //vector<double> rotvec;// transvec;
+    vector<double> rv, bv, reade0, reade1;
+        //vector<double> ge0, ge1;
+
  //   vector<double> nyBasPos; //vector att spara postitioner i
-    vector<double> x0, x1, x2, x3, x1x0, x2x0, nyBasPos;
+    vector<double> x0, x1, x2, x3; //, x1x0, x2x0,
+    vector<double> nyBasPos;
+
+
     vector<KeyPoint> redkeypoints, bluekeypoints; // Storage for blob keypoints
-    a3d::Vector3d v2r, v2b, transvec, transvec2, normal, redintersection, blueintersection, e0, e1;
+    a3d::Vector3d v2r, v2b, transvec, transvec2, normal, redintersection, blueintersection;
+    a3d::Vector3d e0 = {0.0, 0.0, 0.0}, e1 = {0.0, 0.0, 0.0};
     namedWindow("keypoints", WINDOW_NORMAL);
     namedWindow("red image", WINDOW_NORMAL);
     namedWindow("blue image", WINDOW_NORMAL);
     const Scalar RED(0,0,255), GREEN(0,255,0);
+
     // HSV color-space threshold values
     int redMinH = 0;
     int redMaxH = 20;
@@ -70,29 +91,21 @@ int main()
     // Setup SimpleBlobDetector parameters.
     SimpleBlobDetector::Params params;
 
-    // frame thresholds
-    params.minThreshold = 50;
-    params.maxThreshold = 250;
-    params.thresholdStep = 50;
-    // Filter by color
-    params.filterByColor = false;
-    // Filter by Area.
-    params.filterByArea = true;
-    params.minArea = 100;
-    params.maxArea = 10000;
-    // Filter by Circularity
-    params.filterByCircularity = true;
-    params.minCircularity = 0.1;
-    // Filter by Convexity
-    params.filterByConvexity = false;
-    // Filter by Inertia
-    params.filterByInertia = false;
+    /********************************
+     * function that sets params
+     ********************************/
+    setParams(params);
 
     // Set up detector with params
     Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params);
 
-    // Read camera calibration data
+    /*********************************
+     * Read camera calibration data
+     *********************************/
     readCalibrationData(cameraMatrix, extrinsicParam);
+
+    // Try to read Sphero calibration data points
+    readSpheroCalibration(x3, reade0, reade1, e0, e1, newbase);
 
     // camera intrinsic parameter fx ( fx == fy ), calibrated at fullHD 1920x1080
     double fx = cameraMatrix.at<double>(0,0);
@@ -104,29 +117,13 @@ int main()
 
     transvec = {extrinsicParam.at<double>(0,3), extrinsicParam.at<double>(0,4), extrinsicParam.at<double>(0,5)};
 
-    for( int i = 0; i < 3; i++)
-    {
-        value = extrinsicParam.at<double>(0,i);
-        rotvec.push_back(value);
-    }
-
-    // Rodrigues transforms rotation vector from extrinsics to 3x3 array, stored in matrix Rot
-    Rodrigues(rotvec, Rot, noArray());
-
-    // invert y and z of Rot
-    a3d::Matrix3d Mr(+Rot.at<double>(0,0), +Rot.at<double>(0,1), +Rot.at<double>(0,2),
-                     -Rot.at<double>(1,0), -Rot.at<double>(1,1), -Rot.at<double>(1,2),
-                     -Rot.at<double>(2,0), -Rot.at<double>(2,1), -Rot.at<double>(2,2));
-    // quaternion rotation
-    a3d::Quaterniond r = a3d::Quaterniond(Mr);
-    cout << "quaternion r : " << r << endl;
-
-    // rotate z with quaternion r
-    normal = r.rotate(a3d::Vector3d(0,0,1));
-    cout << "normal of plane : " << normal << endl;
+    /***********************************
+     * function that calculates normal
+     ***********************************/
+    normal = calculateNormal(cameraMatrix, extrinsicParam);
 
     //video capture object.
-    VideoCapture capture(0);
+    VideoCapture capture(1);
 
     if(!capture.isOpened()){
         cout << "ERROR ACQUIRING VIDEO FEED\n";
@@ -134,28 +131,11 @@ int main()
         return -1;
     }
 
-    // Det här funkar bra som fan!
-    capture.set(CAP_PROP_FRAME_WIDTH, 1920);
-    capture.set(CAP_PROP_FRAME_HEIGHT, 1080);
-    capture.set(CAP_PROP_GAIN, 0.0);
-    capture.set(CAP_PROP_SATURATION, 255.0);
-    capture.set(CAP_PROP_BRIGHTNESS, 100.0);
-    capture.set(CAP_PROP_EXPOSURE, -5.0);
-    capture.set(CAP_PROP_CONTRAST, 255.0);
+    /*********************************************************************************
+     * function that sets the camera settings so that we can se the "glowing" spheros
+     *********************************************************************************/
+    setCameraSettings(capture);
 
-    Brightness = capture.get(CAP_PROP_BRIGHTNESS);
-    Contrast   = capture.get(CAP_PROP_CONTRAST );
-    Saturation = capture.get(CAP_PROP_SATURATION);
-    Gain       = capture.get(CAP_PROP_GAIN);
-    exposure   = capture.get(CAP_PROP_EXPOSURE);
-
-    cout<<"===================================="<<endl<<endl;
-    cout<<"Default Brightness--------> "<<Brightness<<endl;
-    cout<<"Default Contrast----------> "<<Contrast<<endl;
-    cout<<"Default Saturation--------> "<<Saturation<<endl;
-    cout<<"Default Gain--------------> "<<Gain<<endl<<endl;
-    cout<<"Default Exposure----------> "<<exposure<<endl<<endl;
-    cout<<"===================================="<<endl;
 
     // capture one frame and print image size
     capture >> frame;
@@ -202,9 +182,11 @@ int main()
         for(int i = 0; i < rv.size() ; i++){
             v2r[i] = rv[i];
         }
+
         for(int i = 0; i < bv.size() ; i++){
             v2b[i] = bv[i];
         }
+
 
         // calculate intersection of normal vector and projection vector
         // calculate d = length of line intersecting plane
@@ -217,6 +199,14 @@ int main()
         blueintersection = db * v2b;
 
         // calculate positions in the new base
+
+        char keyc = (char)waitKey(capture.isOpened() ? 50 : 1);
+        if( capture.isOpened() && keyc == 'c' )
+        {
+            newbase = false;
+            newbasecounter = 0;
+        }
+
         char key = (char)waitKey(capture.isOpened() ? 50 : 1); //int riktigt säker på vad som ska stå istället för 1, stod delay förut
         if( capture.isOpened() && key == 'b' )
         {
@@ -231,24 +221,25 @@ int main()
         if( !newbase && newbasecounter == 8 )
         {
             // x0,x1,x2 corner points, x3 middle point
+
+            //man skulle kunna skicka in enbart nyBasPos i funktionen, men då måste man re-definiera x0-x2 i funktionen
+            //vi kommer behöva i alla fall x3 senare i koden.
             x0 = {nyBasPos[0], nyBasPos[1]};
             x1 = {nyBasPos[2], nyBasPos[3]};
             x2 = {nyBasPos[4], nyBasPos[5]};
             x3 = {nyBasPos[6], nyBasPos[7]};
 
-            //x1 - x0
-            x1x0 = {x1[0]-x0[0],x1[1]-x0[1]};
-            //x2 - x0
-            x2x0 = {x2[0]-x0[0],x2[1]-x0[1]};
+            /******************************************
+             * function that calculates new base
+             ******************************************/
+            calculateNewBase(x0, x1, x2, e0, e1);
 
-            //new base, vector<double>
-            ge0 = (x1-x0)/(sqrt((x1x0[0]*x1x0[0]+x1x0[1]*x1x0[1])));
-            ge1 = (x2-x0)/(sqrt((x2x0[0]*x2x0[0]+x2x0[1]*x2x0[1])));
-
-            //new base, Vector3d
-            e0 = {ge0[0], ge0[1], 0};
-            e1 = {ge1[0], ge1[1], 0};
+            // converting to vector<double> to be able to write to file
+            reade0 = {e0[0], e0[1]};
+            reade1 = {e1[0], e1[1]};
             newbase = true;
+
+            saveSpheroPositions(x3, reade0, reade1);
         }
 
         //position in new coordinate base
@@ -284,13 +275,12 @@ int main()
         cout << "   Red Pos : " << redX << " , " << redY << "   Blue Pos : " << blueX << " , " << blueY<< endl;
 
         imshow("red image", redthresholdimg);
-       // imshow("blue image", bluethresholdimg);
+        imshow("blue image", bluethresholdimg);
 
-        // Draw detected blobs as red circles.
-        // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
-        // the size of the circle corresponds to the size of blob
+        // Draw detected blobs as green circles (och blå).
+        // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures the size of the circle corresponds to the size of blob
         drawKeypoints( frame, redkeypoints, im_with_keypoints, Scalar(0,255,0), DrawMatchesFlags::DEFAULT );
-       // drawKeypoints( frame, bluekeypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DEFAULT );
+        drawKeypoints( frame, bluekeypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DEFAULT );
 
         // Show blobs
         imshow("keypoints", im_with_keypoints );
@@ -320,6 +310,11 @@ int main()
     }
 }
 
+/**************************************************
+ *
+ * Functions
+ *
+ **************************************************/
 
 // read camera matrix and extrinsics from XML-file
 int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam){
@@ -339,6 +334,45 @@ int readCalibrationData(Mat& cameraMatrix, Mat& extrinsicParam){
     cout << "camera matrix : " << cameraMatrix << endl;
 }
 
+void readSpheroCalibration(vector<double>& x3, vector<double>& reade0, vector<double>& reade1, a3d::Vector3d& e0, a3d::Vector3d& e1, bool& newbase)
+{
+    const string calibrationFile = "../base_config.xml";
+    FileStorage fs2(calibrationFile, FileStorage::READ); // Read the settings
+    if (!fs2.isOpened())
+    {
+        cout << "Could not open the configuration file: \"" << calibrationFile << "\"" << endl;
+    }
+    if(fs2.isOpened())
+    {
+        fs2["x3"] >> x3;
+        fs2["e0"] >> reade0;
+        fs2["e1"] >> reade1;
+        e0 = {reade0[0], reade0[1], 0};
+        e1 = {reade1[0], reade1[1], 0};
+        newbase = true;
+    }
+}
+
+// Print sphero positions and base vectors to the output file
+void saveSpheroPositions(vector<double> x3, vector<double> e0, vector<double> e1)
+{
+    const string outputFileName = "../base_config.xml";
+    FileStorage fs( outputFileName, FileStorage::WRITE );
+
+    time_t tm;
+    time( &tm );
+    struct tm *t2 = localtime( &tm );
+    char buf[1024];
+    strftime( buf, sizeof(buf), "%c", t2 );
+
+    fs << "calibration_time" << buf;
+
+    fs << "x3" << x3;
+    fs << "e0" << e0;
+    fs << "e1" << e1;
+
+}
+
 vector<double> operator-(vector<double> &vec1, vector<double> &vec2){
     return {vec1[0]-vec2[0], vec1[1]-vec2[1]};
 }
@@ -346,18 +380,136 @@ vector<double> operator/(vector<double> vec1, double d){
     return {vec1[0]/d, vec1[1]/d};
 }
 
+void setParams(SimpleBlobDetector::Params &params)
+{
+    // frame thresholds
+    params.minThreshold = 50;
+    params.maxThreshold = 250;
+    params.thresholdStep = 50;
+    // Filter by color
+    params.filterByColor = false;
+    // Filter by Area.
+    params.filterByArea = true;
+    params.minArea = 100;
+    params.maxArea = 10000;
+    // Filter by Circularity
+    params.filterByCircularity = true;
+    params.minCircularity = 0.1;
+    // Filter by Convexity
+    params.filterByConvexity = false;
+    // Filter by Inertia
+    params.filterByInertia = false;
+}
+
+a3d::Vector3d calculateNormal(Mat cameraMatrix, Mat extrinsicParam)
+{
+    a3d::Vector3d transvec, normal;
+    vector<double> rotvec;
+    double value;
+    Mat Rot(3,3, CV_32FC1);
+
+    // separate the rotation and translation of extrinsic parameters
+    // transvec as Vector3d, rotvec as vector<double>
+
+    for( int i = 0; i < 3; i++)
+    {
+        value = extrinsicParam.at<double>(0,i);
+        rotvec.push_back(value);
+    }
+
+    // Rodrigues transforms rotation vector from extrinsics to 3x3 array, stored in matrix Rot
+    Rodrigues(rotvec, Rot, noArray());
+
+    // invert y and z of Rot
+    a3d::Matrix3d Mr(+Rot.at<double>(0,0), +Rot.at<double>(0,1), +Rot.at<double>(0,2),
+                     -Rot.at<double>(1,0), -Rot.at<double>(1,1), -Rot.at<double>(1,2),
+                     -Rot.at<double>(2,0), -Rot.at<double>(2,1), -Rot.at<double>(2,2));
+    // quaternion rotation
+    a3d::Quaterniond r = a3d::Quaterniond(Mr);
+    cout << "quaternion r : " << r << endl;
+
+    // rotate z with quaternion r
+    normal = r.rotate(a3d::Vector3d(0,0,1));
+    cout << "normal of plane : " << normal << endl;
+}
+
+void setCameraSettings(VideoCapture &capture)
+{
+    double Brightness, exposure, Contrast, Saturation, Gain;
+
+    // Det här funkar bra som fan!
+    capture.set(CAP_PROP_FRAME_WIDTH, 1920);
+    capture.set(CAP_PROP_FRAME_HEIGHT, 1080);
+    capture.set(CAP_PROP_GAIN, 0.0);
+    capture.set(CAP_PROP_SATURATION, 255.0);
+    capture.set(CAP_PROP_BRIGHTNESS, 100.0);
+    capture.set(CAP_PROP_EXPOSURE, -5.0);
+    capture.set(CAP_PROP_CONTRAST, 255.0);
+
+    Brightness = capture.get(CAP_PROP_BRIGHTNESS);
+    Contrast   = capture.get(CAP_PROP_CONTRAST );
+    Saturation = capture.get(CAP_PROP_SATURATION);
+    Gain       = capture.get(CAP_PROP_GAIN);
+    exposure   = capture.get(CAP_PROP_EXPOSURE);
+
+    cout<<"===================================="<<endl<<endl;
+    cout<<"Default Brightness--------> "<<Brightness<<endl;
+    cout<<"Default Contrast----------> "<<Contrast<<endl;
+    cout<<"Default Saturation--------> "<<Saturation<<endl;
+    cout<<"Default Gain--------------> "<<Gain<<endl<<endl;
+    cout<<"Default Exposure----------> "<<exposure<<endl<<endl;
+    cout<<"===================================="<<endl;
+}
+
+void calculateNewBase(vector<double> x0, vector<double> x1, vector<double> x2, a3d::Vector3d &e0, a3d::Vector3d &e1)
+{
+    vector<double>  x1x0, x2x0;
+    vector<double> ge0, ge1;
+
+    if( x0[0] == x1[0] && x0[1] == x1[1] && x0[2] == x1[2])
+    {
+        x0 = {1.1, 1.1, 1.1};
+        x1 = {2.2, 2.2, 2.2};
+    }
+
+    if( x0[0] == x2[0] && x0[1] == x2[1] && x0[2] == x2[2])
+    {
+        x0 = {1.1, 1.1, 1.1};
+        x2 = {3.3, 3.3, 3.3};
+    }
+
+    // x0,x1,x2 corner points, x3 middle point
+    //x0 = {nyBasPos[0], nyBasPos[1]};
+    //x1 = {nyBasPos[2], nyBasPos[3]};
+    //x2 = {nyBasPos[4], nyBasPos[5]};
+    //x3 = {nyBasPos[6], nyBasPos[7]};
+
+    //x1 - x0
+    x1x0 = {x1[0]-x0[0],x1[1]-x0[1]};
+    //x2 - x0
+    x2x0 = {x2[0]-x0[0],x2[1]-x0[1]};
+
+    //new base, vector<double>
+    ge0 = (x1-x0)/(sqrt((x1x0[0]*x1x0[0]+x1x0[1]*x1x0[1])));
+    ge1 = (x2-x0)/(sqrt((x2x0[0]*x2x0[0]+x2x0[1]*x2x0[1])));
+
+    //new base, Vector3d
+    e0 = {ge0[0], ge0[1], 0};
+    e1 = {ge1[0], ge1[1], 0};
+}
+
+/*
+void operator=(vector<double> vec){
+    this = {vec[0], vec[1], 0.0};
+}*/
+
 /* // [R|T] matrix with rotation and translation from extrinsic values
  *
 cv::Mat componentMat ( transvec, true );
 std::cout << componentMat << endl;
-
 Mat RT(3,4, CV_32FC1);
-
 hconcat(Rot, componentMat, RT);
-
 cout << "[R|T] : " << RT << endl;
-
-
 cout << "transvec: " <<  endl;
 for(int i = 0; i < 3; i++)
 {
@@ -367,9 +519,7 @@ for(int i = 0; i < 3; i++)
 /*
 // Class based main code, not working atm
 // Reading camera parameters from XML to compute normal
-
 int main( int argc, char** argv ) {
-
     const string calibrationFile = argc > 1 ? argv[1] : "../out_camera_data.xml";
     FileStorage fs(calibrationFile , FileStorage::READ);
     if (!fs.isOpened())
@@ -381,87 +531,57 @@ int main( int argc, char** argv ) {
     fs["camera_matrix"] >> cameraMatrix;
     fs["extrinsic_parameters"] >> extrinsicParam;
     fs.release();
-
-
     vector<double> rotvec, transvec;
     for( int i = 0; i < 3; i++)
     {
         double value = extrinsicParam.at<double>(0,i);
         rotvec.push_back(value);
     }
-
     for(int i = 3; i < 6; i++)
     {
        double value = extrinsicParam.at<double>(0,i);
        transvec.push_back(value);
     }
-
     Mat Rot(3,3, CV_32FC1);
     Rodrigues(rotvec, Rot, noArray());
-
-
     cv::Mat componentMat ( transvec, true );
     std::cout << componentMat << endl;
-
     Mat RT(3,4, CV_32FC1);
-
     hconcat(Rot, componentMat, RT);
-
     cout << "[R|T] : " << RT << endl;
-
-
     cout << "transvec: " <<  endl;
     for(int i = 0; i < 3; i++)
     {
         cout << transvec[i] << " ";
     }
-
     a3d::Matrix3d Mr(+Rot.at<double>(0,0), +Rot.at<double>(0,1), +Rot.at<double>(0,2),
                      -Rot.at<double>(1,0), -Rot.at<double>(1,1), -Rot.at<double>(1,2),
                      -Rot.at<double>(2,0), -Rot.at<double>(2,1), -Rot.at<double>(2,2));
-
     a3d::Quaterniond r = a3d::Quaterniond(Mr);
     cout << "quaternion r : " << r << endl;
-
     a3d::Vector3d normal = r.rotate(a3d::Vector3d(0,0,1));
-
     cout << "normal of plane : " << normal << endl;
-
     //a3d::Vector3d floor_normal = r * a3d::Vector3d(0,0,1);
-
     return 0;
-
-
-
-
     WebCam cam1;
     vector<KeyPoint> pos;
-
-
     while(true) {
-
         // store sphero pos in vector
         cam1.updateCamera();
-
         // save keypoints
         Mat im_with_keypoints;
-
         // Draw detected blobs as red circles.
         // DrawMatchesFlags::DRAW_RICH_KEYPOINTS flag ensures
         // the size of the circle corresponds to the size of blob
         drawKeypoints( cam1.frame, cam1.keypoints, im_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS );
-
         // Show blobs
         namedWindow("keypoints", 0 );
         imshow("keypoints", im_with_keypoints );
         //resizeWindow("keypoints", 1920, 1080);
         //imshow("binary image", binarizedImage);
         waitKey(1);
-
         bool pause = false;
-
         switch (waitKey(10)) {
-
             case 27: //'esc' key has been pressed, exit program.
                 //delete cam1;
                 return 0;
@@ -483,8 +603,6 @@ int main( int argc, char** argv ) {
                 }
         }
     }
-
-
 }*/
 
 // Find HSV color values
@@ -497,14 +615,11 @@ int main( int argc, char** argv ) {
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/opencv.hpp>
-
 #include <iostream>
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
-
 using namespace cv;
 using namespace std;
-
 //initial min and max HSV filter values.
 //these will be changed using trackbars
 int H_MIN = 0;
@@ -527,29 +642,20 @@ const string windowName1 = "HSV Image";
 const string windowName2 = "Thresholded Image";
 const string windowName3 = "After Morphological Operations";
 const string trackbarWindowName = "Trackbars";
-
 bool calibrationMode;//used for showing debugging windows, trackbars etc.
-
 bool mouseIsDragging;//used for showing a rectangle on screen as user clicks and drags mouse
 bool mouseMove;
 bool rectangleSelected;
 Point initialClickPoint, currentMousePoint; //keep track of initial point clicked and current position of mouse
 Rect rectangleROI; //this is the ROI that the user has selected
 vector<int> H_ROI, S_ROI, V_ROI;// HSV values from the click/drag ROI region stored in separate vectors so that we can sort them easily
-
 void on_trackbar(int, void*)
 {//This function gets called whenever a
     // trackbar position is changed
-
     //for now, this does nothing.
-
-
-
 }
 void createTrackbars(){
     //create window for trackbars
-
-
     namedWindow(trackbarWindowName, 0);
     //create memory to store trackbar name on window
     char TrackbarName[50];
@@ -570,15 +676,12 @@ void createTrackbars(){
     createTrackbar("S_MAX", trackbarWindowName, &S_MAX, 255, on_trackbar);
     createTrackbar("V_MIN", trackbarWindowName, &V_MIN, 255, on_trackbar);
     createTrackbar("V_MAX", trackbarWindowName, &V_MAX, 255, on_trackbar);
-
-
 }
 void clickAndDrag_Rectangle(int event, int x, int y, int flags, void* param){
     //only if calibration mode is true will we use the mouse to change HSV values
     if (calibrationMode == true){
         //get handle to video feed passed in as "param" and cast as Mat pointer
         Mat* videoFeed = (Mat*)param;
-
         if (event == CV_EVENT_LBUTTONDOWN && mouseIsDragging == false)
         {
             //keep track of initial point clicked
@@ -599,13 +702,11 @@ void clickAndDrag_Rectangle(int event, int x, int y, int flags, void* param){
         {
             //set rectangle ROI to the rectangle that the user has selected
             rectangleROI = Rect(initialClickPoint, currentMousePoint);
-
             //reset boolean variables
             mouseIsDragging = false;
             mouseMove = false;
             rectangleSelected = true;
         }
-
         if (event == CV_EVENT_RBUTTONDOWN){
             //user has clicked right mouse button
             //Reset HSV Values
@@ -615,21 +716,16 @@ void clickAndDrag_Rectangle(int event, int x, int y, int flags, void* param){
             H_MAX = 255;
             S_MAX = 255;
             V_MAX = 255;
-
         }
         if (event == CV_EVENT_MBUTTONDOWN){
-
             //user has clicked middle mouse button
             //enter code here if needed.
         }
     }
-
 }
 void recordHSV_Values(cv::Mat frame, cv::Mat hsv_frame){
-
     //save HSV values for ROI that user selected to a vector
     if (mouseMove == false && rectangleSelected == true){
-
         //clear previous vector values
         if (H_ROI.size()>0) H_ROI.clear();
         if (S_ROI.size()>0) S_ROI.clear();
@@ -650,7 +746,6 @@ void recordHSV_Values(cv::Mat frame, cv::Mat hsv_frame){
         //reset rectangleSelected so user can select another region if necessary
         rectangleSelected = false;
         //set min and max HSV values from min and max elements of each array
-
         if (H_ROI.size()>0){
             //NOTE: min_element and max_element return iterators so we must dereference them with "*"
             H_MIN = *std::min_element(H_ROI.begin(), H_ROI.end());
@@ -670,32 +765,22 @@ void recordHSV_Values(cv::Mat frame, cv::Mat hsv_frame){
             cout << "MIN 'V' VALUE: " << V_MIN << endl;
             cout << "MAX 'V' VALUE: " << V_MAX << endl;
         }
-
     }
-
     if (mouseMove == true){
         //if the mouse is held down, we will draw the click and dragged rectangle to the screen
         rectangle(frame, initialClickPoint, cv::Point(currentMousePoint.x, currentMousePoint.y), cv::Scalar(0, 255, 0), 1, 8, 0);
     }
-
-
 }
 string intToString(int number){
-
-
     std::stringstream ss;
     ss << number;
     return ss.str();
 }
 void drawObject(int x, int y, Mat &frame){
-
     //use some of the openCV drawing functions to draw crosshairs
     //on your tracked image!
-
-
     //'if' and 'else' statements to prevent
     //memory errors from writing off the screen (ie. (-25,-25) is not within the window)
-
     circle(frame, Point(x, y), 20, Scalar(0, 255, 0), 2);
     if (y - 25>0)
         line(frame, Point(x, y), Point(x, y - 25), Scalar(0, 255, 0), 2);
@@ -713,31 +798,20 @@ void drawObject(int x, int y, Mat &frame){
         line(frame, Point(x, y), Point(x + 25, y), Scalar(0, 255, 0), 2);
     else
         line(frame, Point(x, y), Point(FRAME_WIDTH, y), Scalar(0, 255, 0), 2);
-
     putText(frame, intToString(x) + "," + intToString(y), Point(x, y + 30), 1, 1, Scalar(0, 255, 0), 2);
-
 }
 void morphOps(Mat &thresh){
-
     //create structuring element that will be used to "dilate" and "erode" image.
     //the element chosen here is a 3px by 3px rectangle
-
     Mat erodeElement = getStructuringElement(MORPH_RECT, Size(3, 3));
     //dilate with larger element so make sure object is nicely visible
     Mat dilateElement = getStructuringElement(MORPH_RECT, Size(8, 8));
-
     erode(thresh, thresh, erodeElement);
     erode(thresh, thresh, erodeElement);
-
-
     dilate(thresh, thresh, dilateElement);
     dilate(thresh, thresh, dilateElement);
-
-
-
 }
 void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed){
-
     Mat temp;
     threshold.copyTo(temp);
     //these two vectors needed for output of findContours
@@ -754,10 +828,8 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed){
         //if number of objects greater than MAX_NUM_OBJECTS we have a noisy filter
         if (numObjects<MAX_NUM_OBJECTS){
             for (int index = 0; index >= 0; index = hierarchy[index][0]) {
-
                 Moments moment = moments((cv::Mat)contours[index]);
                 double area = moment.m00;
-
                 //if the area is less than 20 px by 20px then it is probably just noise
                 //if the area is the same as the 3/2 of the image size, probably just a bad filter
                 //we only want the object with the largest area so we save a reference area each
@@ -771,8 +843,6 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed){
                     largestIndex = index;
                 }
                 else objectFound = false;
-
-
             }
             //let user know you found an object
             if (objectFound == true){
@@ -782,7 +852,6 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed){
                 //draw largest contour
                 //drawContours(cameraFeed, contours, largestIndex, Scalar(0, 255, 255), 2);
             }
-
         }
         else putText(cameraFeed, "TOO MUCH NOISE! ADJUST FILTER", Point(0, 50), 1, 2, Scalar(0, 0, 255), 2);
     }
@@ -827,7 +896,6 @@ int main(int argc, char* argv[])
     mouseIsDragging = false;
     mouseMove = false;
     rectangleSelected = false;
-
     //start an infinite loop where webcam feed is copied to cameraFeed matrix
     //all of our operations will be performed within this loop
     while (1){
@@ -849,30 +917,23 @@ int main(int argc, char* argv[])
         //filtered object
         if (trackObjects)
             trackFilteredObject(x, y, threshold, cameraFeed);
-
         //show frames
         if (calibrationMode == true){
-
             //create slider bars for HSV filtering
             createTrackbars();
             imshow(windowName1, HSV);
             imshow(windowName2, threshold);
         }
         else{
-
             destroyWindow(windowName1);
             destroyWindow(windowName2);
             destroyWindow(trackbarWindowName);
         }
         imshow(windowName, cameraFeed);
-
-
-
         //delay 30ms so that screen can refresh.
         //image will not appear without this waitKey() command
         //also use waitKey command to capture keyboard input
         if (waitKey(30) == 99) calibrationMode = !calibrationMode;//if user presses 'c', toggle calibration mode
     }
-
     return 0;
 }*/
